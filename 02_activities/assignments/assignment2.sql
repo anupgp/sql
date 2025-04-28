@@ -155,11 +155,43 @@ HINT: There are a possibly a few ways to do this query, but if you're struggling
 3) Query the second temp table twice, once for the best day, once for the worst day, 
 with a UNION binding them. */
 
-
+SELECT 
+sale,market_date, "best_day "as type
+FROM
+(
+SELECT
+product_id,vendor_id,customer_id,market_date,sale
+,row_number() OVER (ORDER by sale DESC) as rn_high
+FROM
+(
 SELECT
 *
-,(quantity*cost_to_customer_per_qty) as paid
-from customer_purchases
+,(quantity*cost_to_customer_per_qty) as sale
+FROM customer_purchases
+ORDER by sale DESC
+)
+)
+where rn_high = 1
+
+UNION
+
+SELECT 
+sale,market_date, "worst_day "as type
+FROM
+(
+SELECT
+product_id,vendor_id,customer_id,market_date,sale
+,row_number() OVER (ORDER by sale ASC) as rn_low
+FROM
+(
+SELECT
+*
+,(quantity*cost_to_customer_per_qty) as sale
+FROM customer_purchases
+ORDER by sale ASC
+)
+)
+where rn_low = 1
 
 /* SECTION 3 */
 
@@ -174,27 +206,91 @@ Think a bit about the row counts: how many distinct vendors, product names are t
 How many customers are there (y). 
 Before your final group by you should have the product of those two queries (x*y).  */
 
-
-
+----------
+-- create 'vendor_products' table
+drop TABLE if EXISTS temp.vendor_products;
+CREATE TEMP TABLE IF NOT EXISTS temp.vendor_products as
+-- ------------
+SELECT
+vendor_id,product_id, vendor_name, product_name,original_price,5 as quantity
+FROM
+(SELECT *
+FROM
+(
+select 
+DISTINCT
+vendor_id,product_id,original_price
+from 
+vendor_inventory
+order by vendor_id
+) as test
+LEFT JOIN vendor on test.vendor_id = vendor.vendor_id
+LEFT JOIN product on test.product_id = product.product_id
+)
+-- -------------------------
+-- check the temp table containing DISTINCT vendors and their products from vendor_inventory
+-- SELECT *
+-- FROM
+-- vendor_products
+-- -------------------------
+-- checking
+-- SELECT 
+-- customer_id,vendor_name,product_name,original_price,quantity
+-- , original_price*quantity as sale
+-- from customer
+-- CROSS JOIN vendor_products;
+-- -------------------------
+SELECT 
+vendor_name,product_name
+,sum(sale) as total_sales
+FROM
+(
+SELECT 
+customer_id,vendor_name,product_name,original_price,quantity
+,original_price*quantity as sale
+from customer
+CROSS JOIN vendor_products
+)
+GROUP by vendor_name,product_name
+-- -------------------------------------
 -- INSERT
 /*1.  Create a new table "product_units". 
 This table will contain only products where the `product_qty_type = 'unit'`. 
 It should use all of the columns from the product table, as well as a new column for the `CURRENT_TIMESTAMP`.  
 Name the timestamp column `snapshot_timestamp`. */
 
-
+DROP TABLE if EXISTS product_units;
+CREATE TABLE if NOT EXISTS product_units as
+SELECT
+*,CURRENT_TIMESTAMP as snapshot_timestamp
+FROM
+product
+where product_qty_type like "unit";
+SELECT *
+from product_units
 
 /*2. Using `INSERT`, add a new row to the product_units table (with an updated timestamp). 
 This can be any product you desire (e.g. add another record for Apple Pie). */
 
+INSERT into product_units
+VALUES(25,'Cheddar Cheese Mild','6 slices',8,'unit',CURRENT_TIMESTAMP);
+SELECT *
+from product_units
+order by product_id
 
+-- drop TABLE product_units
 
 -- DELETE
+
 /* 1. Delete the older record for the whatever product you added. 
 
 HINT: If you don't specify a WHERE clause, you are going to have a bad time.*/
 
-
+DELETE from product_units
+WHERE product_id = 25;
+SELECT *
+from product_units
+order by product_id
 
 -- UPDATE
 /* 1.We want to add the current_quantity to the product_units table. 
@@ -214,5 +310,92 @@ Finally, make sure you have a WHERE statement to update the right row,
 When you have all of these components, you can run the update statement. */
 
 
+ALTER table product_units
+ADD current_quantity INT;
+
+SELECT *
+from product_units
+order by product_id
+
+-- SELECT *
+-- FROM
+-- vendor_inventory
+-- order by product_id,vendor_id
 
 
+SELECT * 
+FROM
+(SELECT *
+,row_number() over(PARTITION by vendor_id,product_id order by market_date DESC) as rn
+FROM
+vendor_inventory
+order by product_id,vendor_id DESC
+)
+WHERE rn = 1
+
+SELECT
+*
+,CASE
+	when market_date = '2023-10-13' then quantity
+	else NULL
+END as new_quantity
+FROM
+vendor_inventory
+ORDER by market_date DESC
+
+
+-- SELECT
+-- DISTINCT
+-- market_date
+-- FROM vendor_inventory
+-- ORDER by market_date DESC
+
+-----------------------------------------
+-- I took last quantity as the quantity at thr last market_date which is 2023-10-13
+-- I first crete a tem table that holds the values  for last_quantity
+
+DROP TABLE if EXISTS temp.product_last_qty;
+CREATE TABLE if NOT EXISTS temp.product_last_qty as
+-- -------------
+SELECT
+-- product_id,market_date,coalesce(last_quantity,0) as last_quantity
+product_id,coalesce(last_quantity,0) as last_quantity
+FROM
+(SELECT
+*
+,CASE
+	when market_date = '2023-10-13' then quantity
+	else NULL
+END as last_quantity
+FROM
+(SELECT * 
+FROM
+(SELECT *
+,row_number() over(PARTITION by vendor_id,product_id order by market_date DESC) as rn
+FROM
+vendor_inventory
+order by product_id,vendor_id DESC
+)
+WHERE rn = 1)
+)
+-- -------------
+-- created a new table 'product_last_qty' that holds the 'last' quantity
+-- SELECT *
+-- FROM
+-- product_last_qty
+-- -------------
+
+UPDATE product_units
+SET current_quantity = product_last_qty.last_quantity
+FROM product_last_qty
+WHERE
+(product_last_qty.product_id = product_units.product_id);
+
+------------------
+-- check the results
+SELECT *
+FROM
+product_units
+-- there are null values for 'current_quantity' in the 'product_units' TABLE
+-- Because some products are not in the 'vendor_inventory' table. 
+------------------
