@@ -54,7 +54,34 @@ The store wants to keep customer addresses. Propose two architectures for the CU
 **HINT:** search type 1 vs type 2 slowly changing dimensions. 
 
 ```
-Your answer...
+SCD type 1
+In SCD type 1, the data is overwritten on the table. There will be no history of all the changes that happened to the entry. All the data is lost and there is no way to recover previous data.
+
+TABLE: customer_address (SCD type 1)
+
+address_id	int		NOT NULL PK 
+customer_id	int		NOT NULL FK (only one entry per customer)
+street_number	int		DEFAULT
+street_name	varchar		DEFAULT
+city		varchar		DEFAULT
+postcode	varchar		DEFAULT
+country		varchar		DEFAULT
+
+SCD type 2
+SCD type 2 is the recommended approach for tables with critical information such as customer, employee and order details. An example situation is the customer_address table. Say the customer address was updated wrongly, in SCD type 2, it is possible to revert the changes to the last address entry. Here each new address is appended into the table rather than updating an existing entry. By checking the status and/or date field it is possible to get the most recent/active address of the customer. 
+
+TABLE: customer_address (SCD type 2)
+
+address_id	int		NOT NULL PK 
+customer_id	int		NOT NULL FK (multiple centries per customer can exist with different address_id)
+street_number	int		DEFAULT
+street_name	varchar		DEFAULT
+city		varchar		DEFAULT
+postcode	varchar		DEFAULT
+country		varchar		DEFAULT
+date		datetime	NOT NULL (date of the entry)
+status		varchar		NOT NULL (tells whether the address is currently active or inactive)
+
 ```
 
 ***
